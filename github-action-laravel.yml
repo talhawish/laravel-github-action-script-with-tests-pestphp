@@ -9,26 +9,33 @@ on:
 jobs:
   backend-test:
     runs-on: ubuntu-latest
-
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.2"
       - name: Copy .env
         run: php -r "file_exists('.env') || copy('.env.example', '.env');"
       - name: Install Dependencies
         run: |
+          cd backend
           composer install -q --no-ansi --no-interaction --no-scripts --no-progress --prefer-dist
           php artisan key:generate
+          npm install --no-ansi --no-interaction
+          npm run build
       - name: Directory Permissions
-        run: chmod -R 775 storage bootstrap/cache
+        run: chmod -R 775 backend/storage backend/bootstrap/cache
       - name: Create Database
         run: |
-          mkdir -p database
-          touch database/database.sqlite
+          mkdir -p backend/database
+          touch backend/database/database.sqlite
       - name: Execute tests (Unit and Feature tests) via PHPUnit
         env:
           DB_CONNECTION: sqlite
           DB_DATABASE: database/database.sqlite
-        run: php artisan test
+        run: cd backend && php artisan test
+
   deploy-and-build:
     needs: backend-test
     if: ${{ github.event_name == 'push' }}
@@ -50,22 +57,21 @@ jobs:
           port: ${{ secrets.PORT }}
 
           script: |
-            cd /var/www/html/project-folder           
+            cd /var/www/html/my-site
             git checkout -f
             git pull origin main
 
+            php artisan down
+
             # BACKEND
-            composer install --optimize-autoloader --no-dev
-            php artisan migrate
+            composer install --optimize-autoloader
+            php artisan migrate --force
             # sudo chown -R $USER:www-data storage
             # sudo chown -R $USER:www-data bootstrap/cache
             # chmod -R 775 storage bootstrap/cache
 
-            # FRONTEND BUILD
-            npm install --no-ansi --no-interaction
+            #frontend assets
             npm run build
 
             # CACHE ASSETS
-            artisan config:cache
-            php artisan route:cache
-            php artisan view:cache
+            php artisan optimize
